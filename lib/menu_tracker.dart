@@ -61,6 +61,12 @@ class _TrackedDropdownMenuState<T> extends State<TrackedDropdownMenu<T>> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _updateMaxHeight());
   }
 
+  @override
+  void didUpdateWidget(TrackedDropdownMenu<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateMaxHeight());
+  }
+
   void _updateMaxHeight() {
     final ctx = _key.currentContext;
     if (ctx == null) return;
@@ -78,9 +84,12 @@ class _TrackedDropdownMenuState<T> extends State<TrackedDropdownMenu<T>> {
         8;
 
     if (mounted) {
-      setState(() {
-        _maxMenuHeight = available > 50 ? available : 50;
-      });
+      final newHeight = available > 50 ? available : 50.0;
+      if ((_maxMenuHeight - newHeight).abs() > 1.0) {
+        setState(() {
+          _maxMenuHeight = newHeight;
+        });
+      }
     }
   }
 
@@ -92,20 +101,24 @@ class _TrackedDropdownMenuState<T> extends State<TrackedDropdownMenu<T>> {
 
   @override
   Widget build(BuildContext context) {
-    return DropdownMenu<T>(
-      key: _key,
-      menuController: _controller,
-      expandedInsets: widget.expandedInsets,
-      label: widget.label,
-      inputDecorationTheme: widget.inputDecorationTheme,
-      initialSelection: widget.initialSelection,
-      enabled: widget.enabled,
-      dropdownMenuEntries: widget.dropdownMenuEntries,
-      onSelected: widget.onSelected,
-      menuStyle: MenuStyle(
-        alignment: AlignmentDirectional.bottomStart,
-        maximumSize: WidgetStatePropertyAll(
-          Size(double.infinity, _maxMenuHeight),
+    return Listener(
+      onPointerDown: (_) => _updateMaxHeight(),
+      behavior: HitTestBehavior.translucent,
+      child: DropdownMenu<T>(
+        key: _key,
+        menuController: _controller,
+        expandedInsets: widget.expandedInsets,
+        label: widget.label,
+        inputDecorationTheme: widget.inputDecorationTheme,
+        initialSelection: widget.initialSelection,
+        enabled: widget.enabled,
+        dropdownMenuEntries: widget.dropdownMenuEntries,
+        onSelected: widget.onSelected,
+        menuStyle: MenuStyle(
+          alignment: AlignmentDirectional.bottomStart,
+          maximumSize: WidgetStatePropertyAll(
+            Size(double.infinity, _maxMenuHeight),
+          ),
         ),
       ),
     );

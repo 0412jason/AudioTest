@@ -73,6 +73,10 @@ class MainActivity : FlutterActivity() {
                             val options = getAudioSourceOptions()
                             result.success(options)
                         }
+                        "getAudioModeOptions" -> {
+                            val options = getAudioModeOptions()
+                            result.success(options)
+                        }
                         "getFileAudioInfo" -> {
                             val filePath =
                                     call.argument<String>("filePath")
@@ -177,7 +181,10 @@ class MainActivity : FlutterActivity() {
                                     call.argument<Int>("audioFormat")
                                             ?: AudioFormat.ENCODING_PCM_16BIT
                             val audioSource = call.argument<Int>("audioSource") ?: 0
+                            val saveToFile = call.argument<Boolean>("saveToFile") ?: false
                             val preferredDeviceId = call.argument<Int>("preferredDeviceId")
+                            val audioMode =
+                                    call.argument<Int>("audioMode") ?: AudioManager.MODE_NORMAL
 
                             if (ContextCompat.checkSelfPermission(
                                             this,
@@ -203,7 +210,9 @@ class MainActivity : FlutterActivity() {
                                     channelConfig,
                                     audioFormat,
                                     audioSource,
-                                    preferredDeviceId
+                                    saveToFile,
+                                    preferredDeviceId,
+                                    audioMode
                             )
                             result.success(null)
                         }
@@ -257,6 +266,22 @@ class MainActivity : FlutterActivity() {
             AudioDeviceInfo.TYPE_BLE_BROADCAST -> "BLE Broadcast"
             else -> "Unknown"
         }
+    }
+
+    private fun getAudioModeOptions(): Map<String, Int> {
+        val options = mutableMapOf<String, Int>()
+        for (field in AudioManager::class.java.fields) {
+            try {
+                if (field.type == Int::class.javaPrimitiveType && field.name.startsWith("MODE_")) {
+                    val value = field.getInt(null)
+                    val name = field.name
+                    options[name] = value
+                }
+            } catch (e: Exception) {
+                // Ignore inaccessible fields
+            }
+        }
+        return options
     }
 
     private fun getAudioSourceOptions(): Map<String, Int> {
@@ -607,16 +632,18 @@ class MainActivity : FlutterActivity() {
                 var maxAmp = 0
                 var i = 0
                 while (i < byteBuffer.size) {
-                    val sample = (sin(angle) * 127).toInt().toByte()
+                    val sampleValue = (sin(angle) * 127).toInt() + 128
+                    val sample = sampleValue.toByte()
                     repeat(channelCount) { ch ->
                         if (i + ch < byteBuffer.size) byteBuffer[i + ch] = sample
                     }
                     i += channelCount
                     angle += angleIncrement
-                    if (Math.abs(sample.toInt()) > maxAmp) maxAmp = Math.abs(sample.toInt())
+                    val amp = Math.abs(sampleValue - 128)
+                    if (amp > maxAmp) maxAmp = amp
                 }
                 audioTrack.write(byteBuffer, 0, byteBuffer.size)
-                normalizedAmp = maxAmp.toDouble() / 127.0
+                normalizedAmp = maxAmp.toDouble() / 128.0
             } else if (is24Bit && byteBuffer != null) {
                 var maxAmp = 0
                 // 24-bit packed: 3 bytes per sample, channelCount samples per frame
@@ -734,7 +761,9 @@ class MainActivity : FlutterActivity() {
             channelConfig: Int,
             audioFormat: Int,
             audioSource: Int,
-            preferredDeviceId: Int?
+            saveToFile: Boolean,
+            preferredDeviceId: Int?,
+            audioMode: Int
     ) {
         stopRecording(instanceId)
 
@@ -743,6 +772,10 @@ class MainActivity : FlutterActivity() {
         ) {
             return
         }
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.mode = audioMode
+        Log.d("AudioTest", "Set audio mode to $audioMode current mode ${audioManager.mode}")
 
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
 
@@ -788,6 +821,31 @@ class MainActivity : FlutterActivity() {
             val shortBuffer = if (is16Bit) ShortArray(bufferSize) else null
             val floatBuffer = if (isFloat) FloatArray(bufferSize) else null
 
+            var randomAccessFile: java.io.RandomAccessFile? = null
+            var totalAudioLen: Long = 0
+            var outputFilePath: String? = null
+
+            if (saveToFile) {
+                try {
+                    val timeStamp =
+                            java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                                    .format(java.util.Date())
+                    val fileName = "Record_$timeStamp.wav"
+                    val musicDir = getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+                    if (musicDir != null) {
+                        if (!musicDir.exists()) musicDir.mkdirs()
+                        val file = java.io.File(musicDir, fileName)
+                        outputFilePath = file.absolutePath
+                        randomAccessFile = java.io.RandomAccessFile(file, "rw")
+                        // Write dummy header (44 bytes)
+                        val header = ByteArray(44)
+                        randomAccessFile.write(header)
+                    }
+                } catch (e: Exception) {
+                    Log.e("AudioTest", "Failed to create WAV file: $e")
+                }
+            }
+
             while (isRecordingMap[instanceId] == true) {
                 var normalizedAmp = 0.0
 
@@ -796,11 +854,20 @@ class MainActivity : FlutterActivity() {
                     if (readResult > 0) {
                         var maxAmp = 0
                         for (i in 0 until readResult) {
-                            if (Math.abs(byteBuffer[i].toInt()) > maxAmp) {
-                                maxAmp = Math.abs(byteBuffer[i].toInt())
+                            val sample = (byteBuffer[i].toInt() and 0xFF) - 128
+                            if (Math.abs(sample) > maxAmp) {
+                                maxAmp = Math.abs(sample)
                             }
                         }
-                        normalizedAmp = maxAmp.toDouble() / 127.0
+                        normalizedAmp = maxAmp.toDouble() / 128.0
+                        if (randomAccessFile != null) {
+                            try {
+                                randomAccessFile.write(byteBuffer, 0, readResult)
+                                totalAudioLen += readResult
+                            } catch (e: Exception) {
+                                Log.e("AudioTest", "Failed to write 8-bit PCM: $e")
+                            }
+                        }
                     }
                 } else if (is24Bit && byteBuffer != null) {
                     val readResult = audioRecord.read(byteBuffer, 0, byteBuffer.size)
@@ -818,6 +885,14 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                         normalizedAmp = maxAmp.toDouble() / 8388607.0
+                        if (randomAccessFile != null) {
+                            try {
+                                randomAccessFile.write(byteBuffer, 0, readResult)
+                                totalAudioLen += readResult
+                            } catch (e: Exception) {
+                                Log.e("AudioTest", "Failed to write 24-bit PCM: $e")
+                            }
+                        }
                     }
                 } else if (isFloat && floatBuffer != null) {
                     val readResult =
@@ -835,6 +910,19 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                         normalizedAmp = maxAmp.toDouble()
+                        if (randomAccessFile != null) {
+                            try {
+                                val bytes = ByteArray(readResult * 4)
+                                java.nio.ByteBuffer.wrap(bytes)
+                                        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                                        .asFloatBuffer()
+                                        .put(floatBuffer, 0, readResult)
+                                randomAccessFile.write(bytes)
+                                totalAudioLen += bytes.size
+                            } catch (e: Exception) {
+                                Log.e("AudioTest", "Failed to write float PCM: $e")
+                            }
+                        }
                     }
                 } else if (shortBuffer != null) {
                     val readResult = audioRecord.read(shortBuffer, 0, shortBuffer.size)
@@ -846,11 +934,106 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                         normalizedAmp = maxAmp.toDouble() / Short.MAX_VALUE
+                        if (randomAccessFile != null) {
+                            try {
+                                val bytes = ByteArray(readResult * 2)
+                                java.nio.ByteBuffer.wrap(bytes)
+                                        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                                        .asShortBuffer()
+                                        .put(shortBuffer, 0, readResult)
+                                randomAccessFile.write(bytes)
+                                totalAudioLen += bytes.size
+                            } catch (e: Exception) {
+                                Log.e("AudioTest", "Failed to write 16-bit PCM: $e")
+                            }
+                        }
                     }
                 }
 
                 runOnUiThread {
                     eventSink?.success(mapOf("id" to instanceId, "amp" to normalizedAmp))
+                }
+            }
+
+            if (randomAccessFile != null) {
+                try {
+                    val totalDataLen = totalAudioLen + 36
+                    val longSampleRate = sampleRate.toLong()
+                    val channels = if (channelConfig == AudioFormat.CHANNEL_IN_STEREO) 2 else 1
+
+                    val bitsPerSample =
+                            when {
+                                is8Bit -> 8
+                                is16Bit -> 16
+                                is24Bit -> 24
+                                isFloat -> 32
+                                else -> 16
+                            }
+                    val byteRate = bitsPerSample * sampleRate * channels / 8
+
+                    val header = ByteArray(44)
+                    header[0] = 'R'.code.toByte() // RIFF/WAVE header
+                    header[1] = 'I'.code.toByte()
+                    header[2] = 'F'.code.toByte()
+                    header[3] = 'F'.code.toByte()
+                    header[4] = (totalDataLen and 0xff).toByte()
+                    header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+                    header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+                    header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+                    header[8] = 'W'.code.toByte()
+                    header[9] = 'A'.code.toByte()
+                    header[10] = 'V'.code.toByte()
+                    header[11] = 'E'.code.toByte()
+                    header[12] = 'f'.code.toByte() // 'fmt ' chunk
+                    header[13] = 'm'.code.toByte()
+                    header[14] = 't'.code.toByte()
+                    header[15] = ' '.code.toByte()
+                    header[16] = 16 // 4 bytes: size of 'fmt ' chunk
+                    header[17] = 0
+                    header[18] = 0
+                    header[19] = 0
+                    header[20] = if (isFloat) 3 else 1 // format = 1 for PCM, 3 for IEEE float
+                    header[21] = 0
+                    header[22] = channels.toByte()
+                    header[23] = 0
+                    header[24] = (longSampleRate and 0xff).toByte()
+                    header[25] = ((longSampleRate shr 8) and 0xff).toByte()
+                    header[26] = ((longSampleRate shr 16) and 0xff).toByte()
+                    header[27] = ((longSampleRate shr 24) and 0xff).toByte()
+                    header[28] = (byteRate and 0xff).toByte()
+                    header[29] = ((byteRate shr 8) and 0xff).toByte()
+                    header[30] = ((byteRate shr 16) and 0xff).toByte()
+                    header[31] = ((byteRate shr 24) and 0xff).toByte()
+                    header[32] = (channels * bitsPerSample / 8).toByte() // block align
+                    header[33] = 0
+                    header[34] = bitsPerSample.toByte() // bits per sample
+                    header[35] = 0
+                    header[36] = 'd'.code.toByte()
+                    header[37] = 'a'.code.toByte()
+                    header[38] = 't'.code.toByte()
+                    header[39] = 'a'.code.toByte()
+                    header[40] = (totalAudioLen and 0xff).toByte()
+                    header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
+                    header[42] = ((totalAudioLen shr 16) and 0xff).toByte()
+                    header[43] = ((totalAudioLen shr 24) and 0xff).toByte()
+
+                    randomAccessFile.seek(0)
+                    randomAccessFile.write(header)
+                    randomAccessFile.close()
+
+                    if (outputFilePath != null) {
+                        runOnUiThread {
+                            android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "WAV file successfully saved",
+                                            android.widget.Toast.LENGTH_SHORT
+                                    )
+                                    .show()
+                            eventSink?.success(mapOf("id" to instanceId, "path" to outputFilePath))
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AudioTest", "Failed to update WAV header: $e")
                 }
             }
         }
@@ -859,6 +1042,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopRecording(instanceId: Int) {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.mode = AudioManager.MODE_NORMAL
+        Log.d("AudioTest", "Restored audio mode to MODE_NORMAL")
+
         isRecordingMap[instanceId] = false
         recordThreads[instanceId]?.join()
         recordThreads.remove(instanceId)

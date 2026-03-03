@@ -117,6 +117,25 @@ class AudioEngine {
     }
   }
 
+  static Future<Map<String, int>> getAudioModeOptions() async {
+    try {
+      final Map<Object?, Object?> result = await _methodChannel.invokeMethod(
+        'getAudioModeOptions',
+      );
+
+      Map<String, int> typedResult = {};
+      result.forEach((key, value) {
+        if (key is String && value is int) {
+          typedResult[key] = value;
+        }
+      });
+      return typedResult;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to get audio mode options: '${e.message}'.");
+      return {};
+    }
+  }
+
   static Future<Map<String, int>> getChannelConfigOptions(bool isOutput) async {
     try {
       final Map<Object?, Object?> result = await _methodChannel.invokeMethod(
@@ -213,7 +232,9 @@ class AudioEngine {
     required int channelConfig,
     required int audioFormat,
     required int audioSource,
+    bool saveToFile = false,
     int? preferredDeviceId,
+    int? audioMode,
   }) async {
     try {
       await _methodChannel.invokeMethod('startRecording', {
@@ -222,7 +243,9 @@ class AudioEngine {
         'channelConfig': channelConfig,
         'audioFormat': audioFormat,
         'audioSource': audioSource,
+        'saveToFile': saveToFile,
         'preferredDeviceId': preferredDeviceId,
+        'audioMode': audioMode,
       });
     } on PlatformException catch (e) {
       debugPrint("Failed to start recording: '${e.message}'.");

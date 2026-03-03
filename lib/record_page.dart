@@ -111,6 +111,8 @@ class RecordConfigWidget extends StatefulWidget {
 
 class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   bool _isRecording = false;
+  bool _saveToFile = false;
+  String? _savedFilePath;
 
   // Unique ID for this specific widget instance to interface with the native tracker
   late final int _instanceId;
@@ -122,9 +124,11 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
 
   int _selectedSource = 1;
+  int _selectedMode = 0; // Default MODE_NORMAL is 0
 
   List<AudioDevice> _inputDevices = [];
   Map<String, int> _audioSources = {};
+  Map<String, int> _audioModes = {};
   AudioDevice? _selectedDevice;
 
   final Queue<double> _amplitudes = Queue();
@@ -144,6 +148,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   @override
   void dispose() {
     _sampleRateController.dispose();
+    _amplitudeSub?.cancel(); // Cancel subscription here
     _stopRecording();
     super.dispose();
   }
@@ -151,6 +156,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   Future<void> _loadOptions() async {
     final devices = await AudioEngine.getAudioDevices(false);
     final sources = await AudioEngine.getAudioSourceOptions();
+    final modes = await AudioEngine.getAudioModeOptions();
     if (mounted) {
       setState(() {
         _inputDevices = devices;
@@ -168,6 +174,19 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
             _selectedSource = _audioSources.values.first;
           }
         }
+
+        var sortedModes = modes.entries.toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+        _audioModes = Map.fromEntries(sortedModes);
+
+        if (_audioModes.isNotEmpty &&
+            !_audioModes.values.contains(_selectedMode)) {
+          if (_audioModes.values.contains(0)) {
+            _selectedMode = 0; // Default to MODE_NORMAL (0)
+          } else {
+            _selectedMode = _audioModes.values.first;
+          }
+        }
       });
     }
   }
@@ -181,20 +200,31 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
       channelConfig: _selectedChannelConfig,
       audioFormat: _selectedAudioFormat,
       audioSource: _selectedSource,
+      saveToFile: _saveToFile,
       preferredDeviceId: _selectedDevice?.id,
+      audioMode: _selectedMode,
     );
     setState(() {
       _isRecording = true;
+      _savedFilePath = null; // Clear previous path when starting
     });
 
+    _amplitudeSub
+        ?.cancel(); // Cancel old subscription before starting a new one
     _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
       if (mounted && event['id'] == _instanceId) {
-        setState(() {
-          _amplitudes.addLast(event['amp'] as double);
-          if (_amplitudes.length > _maxAmplitudes) {
-            _amplitudes.removeFirst();
-          }
-        });
+        if (event.containsKey('path')) {
+          setState(() {
+            _savedFilePath = event['path'] as String;
+          });
+        } else if (event.containsKey('amp')) {
+          setState(() {
+            _amplitudes.addLast(event['amp'] as double);
+            if (_amplitudes.length > _maxAmplitudes) {
+              _amplitudes.removeFirst();
+            }
+          });
+        }
       }
     });
   }
@@ -207,7 +237,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
         _amplitudes.add(0.0);
       }
     });
-    _amplitudeSub?.cancel();
+    // Do not cancel _amplitudeSub here, wait for the final 'path' event.
     await AudioEngine.stopRecording(_instanceId);
   }
 
@@ -314,6 +344,40 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
                   ),
                   const SizedBox(height: 8),
 
+                  TrackedDropdownMenu<int>(
+                    expandedInsets: EdgeInsets.zero,
+                    label: const Text('Audio Mode'),
+                    inputDecorationTheme: const InputDecorationTheme(
+                      contentPadding: EdgeInsets.symmetric(vertical: 4),
+                      isDense: true,
+                    ),
+                    initialSelection: _selectedMode,
+                    enabled: !_isRecording,
+                    dropdownMenuEntries: _audioModes.isEmpty
+                        ? const [
+                            DropdownMenuEntry(
+                              value: 0,
+                              label: "MODE_NORMAL (0)",
+                            ),
+                            DropdownMenuEntry(
+                              value: 3,
+                              label: "MODE_IN_COMMUNICATION (3)",
+                            ),
+                          ]
+                        : _audioModes.entries.map((entry) {
+                            return DropdownMenuEntry(
+                              value: entry.value,
+                              label: "${entry.key} (${entry.value})",
+                            );
+                          }).toList(),
+                    onSelected: (v) {
+                      if (v != null) {
+                        setState(() => _selectedMode = v);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+
                   TrackedDropdownMenu<AudioDevice?>(
                     expandedInsets: EdgeInsets.zero,
                     label: const Text('Input Device (Port ID - Name - Type)'),
@@ -337,6 +401,28 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
                     ],
                     onSelected: (v) => setState(() => _selectedDevice = v),
                   ),
+                  const SizedBox(height: 8),
+
+                  CheckboxListTile(
+                    title: const Text('Save to WAV File'),
+                    value: _saveToFile,
+                    onChanged: _isRecording
+                        ? null
+                        : (bool? value) {
+                            setState(() {
+                              _saveToFile = value ?? false;
+                            });
+                          },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  const SizedBox(height: 8),
+
+                  if (_savedFilePath != null)
+                    Text(
+                      'Saved: $_savedFilePath',
+                      style: const TextStyle(fontSize: 12, color: Colors.green),
+                    ),
                 ],
               ),
             ),
