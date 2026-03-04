@@ -13,19 +13,89 @@ class VoIPPage extends StatefulWidget {
 }
 
 class _VoIPPageState extends State<VoIPPage> {
+  int _splitCount = 1;
+
+  void _increaseSplit() {
+    setState(() {
+      if (_splitCount == 1) {
+        _splitCount = 2;
+      } else if (_splitCount == 2) {
+        _splitCount = 4;
+      }
+    });
+  }
+
+  void _decreaseSplit() {
+    setState(() {
+      if (_splitCount == 4) {
+        _splitCount = 2;
+      } else if (_splitCount == 2) {
+        _splitCount = 1;
+      }
+    });
+  }
+
+  Widget _buildGrid() {
+    if (_splitCount == 1) {
+      return const VoIPConfigWidget();
+    } else if (_splitCount == 2) {
+      return Row(
+        children: const [
+          Expanded(child: VoIPConfigWidget()),
+          VerticalDivider(width: 1, thickness: 1),
+          Expanded(child: VoIPConfigWidget()),
+        ],
+      );
+    } else {
+      return Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: const [
+                Expanded(child: VoIPConfigWidget()),
+                VerticalDivider(width: 1, thickness: 1),
+                Expanded(child: VoIPConfigWidget()),
+              ],
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
+          Expanded(
+            child: Row(
+              children: const [
+                Expanded(child: VoIPConfigWidget()),
+                VerticalDivider(width: 1, thickness: 1),
+                Expanded(child: VoIPConfigWidget()),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10.0),
-            child: const Text(
-              'VoIP Configuration',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.remove),
+                onPressed: _splitCount > 1 ? _decreaseSplit : null,
+              ),
+              const Text(
+                'VoIP Configuration',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: const Icon(Icons.add),
+                onPressed: _splitCount < 4 ? _increaseSplit : null,
+              ),
+            ],
           ),
-          const Expanded(child: VoIPConfigWidget()),
+          Expanded(child: _buildGrid()),
         ],
       ),
     );
@@ -46,10 +116,10 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   late final int _instanceId;
 
   final TextEditingController _txSampleRateController = TextEditingController(
-    text: "44100",
+    text: "48000",
   );
   final TextEditingController _rxSampleRateController = TextEditingController(
-    text: "44100",
+    text: "48000",
   );
 
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_IN_STEREO
@@ -114,7 +184,7 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     // 2. Play 2 seconds of beep beep sound as ringtone
     await AudioEngine.startPlayback(
       instanceId: ringtoneId,
-      sampleRate: 44100,
+      sampleRate: 48000,
       channelConfig: 12, // Stereo out
       audioFormat: 2, // 16-bit PCM
       usage: 6, // USAGE_NOTIFICATION_RINGTONE
@@ -148,8 +218,8 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     await AudioEngine.setAudioMode(_selectedMode);
     await AudioEngine.setCommunicationDevice(_selectedOutputDevice?.id);
 
-    int txSampleRate = int.tryParse(_txSampleRateController.text) ?? 44100;
-    int rxSampleRate = int.tryParse(_rxSampleRateController.text) ?? 44100;
+    int txSampleRate = int.tryParse(_txSampleRateController.text) ?? 48000;
+    int rxSampleRate = int.tryParse(_rxSampleRateController.text) ?? 48000;
 
     // Start playback (receiver) sine wave
     await AudioEngine.startPlayback(

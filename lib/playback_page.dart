@@ -118,7 +118,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   late final int _instanceId;
 
   final TextEditingController _sampleRateController = TextEditingController(
-    text: "44100",
+    text: "48000",
   );
   int _playbackSource = 0; // 0 for Sine Wave, 1 for Local File
   String? _localFilePath;

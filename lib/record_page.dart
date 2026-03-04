@@ -118,7 +118,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   late final int _instanceId;
 
   final TextEditingController _sampleRateController = TextEditingController(
-    text: "44100",
+    text: "48000",
   );
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_IN_STEREO
   int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
