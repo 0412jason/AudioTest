@@ -96,6 +96,50 @@ class MainActivity : FlutterActivity() {
                                 result.success(info)
                             }
                         }
+                        "setAudioMode" -> {
+                            val audioMode =
+                                    call.argument<Int>("audioMode") ?: AudioManager.MODE_NORMAL
+                            val audioManager =
+                                    getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                            audioManager.mode = audioMode
+                            Log.d("AudioTest", "setAudioMode: mode changed to $audioMode")
+                            result.success(null)
+                        }
+                        "setCommunicationDevice" -> {
+                            val deviceId = call.argument<Int>("deviceId")
+                            val audioManager =
+                                    getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                if (deviceId == null) {
+                                    audioManager.clearCommunicationDevice()
+                                    Log.d("AudioTest", "clearCommunicationDevice")
+                                    result.success(true)
+                                } else {
+                                    val devices = audioManager.availableCommunicationDevices
+                                    val device = devices.firstOrNull { it.id == deviceId }
+                                    if (device != null) {
+                                        val success = audioManager.setCommunicationDevice(device)
+                                        Log.d(
+                                                "AudioTest",
+                                                "setCommunicationDevice ($deviceId): $success"
+                                        )
+                                        result.success(success)
+                                    } else {
+                                        Log.w(
+                                                "AudioTest",
+                                                "setCommunicationDevice: device $deviceId not found"
+                                        )
+                                        result.success(false)
+                                    }
+                                }
+                            } else {
+                                Log.w(
+                                        "AudioTest",
+                                        "setCommunicationDevice is only supported on Android 12+"
+                                )
+                                result.success(false)
+                            }
+                        }
                         "startPlayback" -> {
                             val instanceId =
                                     call.argument<Int>("instanceId")

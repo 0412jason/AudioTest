@@ -101,6 +101,53 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   }
 
   void _startCall() async {
+    setState(() {
+      _isCalling = true;
+      _savedFilePath = null;
+    });
+
+    // 1. Set mode to ringtone (2 = MODE_RINGTONE)
+    await AudioEngine.setAudioMode(2);
+
+    int ringtoneId = _instanceId + 2;
+
+    // 2. Play 2 seconds of beep beep sound as ringtone
+    await AudioEngine.startPlayback(
+      instanceId: ringtoneId,
+      sampleRate: 44100,
+      channelConfig: 12, // Stereo out
+      audioFormat: 2, // 16-bit PCM
+      usage: 6, // USAGE_NOTIFICATION_RINGTONE
+      contentType: 4, // CONTENT_TYPE_SONIFICATION
+      flags: 0,
+    );
+
+    // 2 seconds of beeps (400ms on, 100ms off, 4 times)
+    for (int i = 0; i < 4; i++) {
+      if (!mounted || !_isCalling) {
+        await AudioEngine.stopPlayback(ringtoneId);
+        return;
+      }
+      if (i > 0) {
+        await AudioEngine.resumePlayback(ringtoneId);
+      }
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted || !_isCalling) {
+        await AudioEngine.stopPlayback(ringtoneId);
+        return;
+      }
+      await AudioEngine.pausePlayback(ringtoneId);
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    await AudioEngine.stopPlayback(ringtoneId);
+
+    if (!mounted || !_isCalling) return;
+
+    // 3. Normal VoIP setup
+    await AudioEngine.setAudioMode(_selectedMode);
+    await AudioEngine.setCommunicationDevice(_selectedOutputDevice?.id);
+
     int txSampleRate = int.tryParse(_txSampleRateController.text) ?? 44100;
     int rxSampleRate = int.tryParse(_rxSampleRateController.text) ?? 44100;
 
@@ -116,6 +163,11 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
       preferredDeviceId: _selectedOutputDevice?.id,
     );
 
+    if (!mounted || !_isCalling) {
+      await AudioEngine.stopPlayback(_instanceId + 1);
+      return;
+    }
+
     // Start recording (sender)
     await AudioEngine.startRecording(
       instanceId: _instanceId,
@@ -127,11 +179,6 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
       preferredDeviceId: _selectedInputDevice?.id,
       saveToFile: _saveToFile,
     );
-
-    setState(() {
-      _isCalling = true;
-      _savedFilePath = null;
-    });
 
     _amplitudeSub?.cancel();
     _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
@@ -162,6 +209,8 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     });
     await AudioEngine.stopRecording(_instanceId);
     await AudioEngine.stopPlayback(_instanceId + 1);
+    await AudioEngine.stopPlayback(_instanceId + 2);
+    await AudioEngine.setCommunicationDevice(null);
   }
 
   @override

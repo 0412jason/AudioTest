@@ -168,6 +168,29 @@ class AudioEngine {
     }
   }
 
+  static Future<void> setAudioMode(int audioMode) async {
+    try {
+      await _methodChannel.invokeMethod('setAudioMode', {
+        'audioMode': audioMode,
+      });
+    } on PlatformException catch (e) {
+      debugPrint("Failed to set audio mode: '${e.message}'.");
+    }
+  }
+
+  static Future<bool> setCommunicationDevice(int? deviceId) async {
+    try {
+      final bool? result = await _methodChannel.invokeMethod<bool>(
+        'setCommunicationDevice',
+        {'deviceId': deviceId},
+      );
+      return result ?? false;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to set communication device: '${e.message}'.");
+      return false;
+    }
+  }
+
   static Future<void> startPlayback({
     required int instanceId,
     required int sampleRate,
