@@ -306,7 +306,10 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
                   const SizedBox(height: 8),
 
                   CheckboxListTile(
-                    title: const Text('Save to WAV File'),
+                    title: Text(
+                      'Save to WAV File',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     value: _saveToFile,
                     onChanged: _isRecording
                         ? null

@@ -41,6 +41,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   );
   int _playbackSource = 0; // 0 for Sine Wave, 1 for Local File
   String? _localFilePath;
+  bool _enableOffload = false;
 
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_OUT_STEREO
   int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
@@ -144,6 +145,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
       flags: _selectedFlags,
       preferredDeviceId: _selectedDevice?.id,
       filePath: _playbackSource == 1 ? _localFilePath : null,
+      offload: _enableOffload,
     );
     setState(() {
       _isPlaying = true;
@@ -268,6 +270,22 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
                           child: const Text('Pick File'),
                         ),
                       ],
+                    ),
+                    CheckboxListTile(
+                      title: Text(
+                        "Enable Compress Offload",
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      value: _enableOffload,
+                      onChanged: _isPlaying
+                          ? null
+                          : (bool? value) {
+                              setState(() {
+                                _enableOffload = value ?? false;
+                              });
+                            },
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
                     ),
                   ],
                   const SizedBox(height: 4),

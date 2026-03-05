@@ -355,7 +355,10 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
                   const SizedBox(height: 16),
 
                   CheckboxListTile(
-                    title: const Text('TX Save to WAV File'),
+                    title: Text(
+                      'TX Save to WAV File',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     value: _saveToFile,
                     onChanged: _isCalling
                         ? null

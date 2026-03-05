@@ -188,6 +188,7 @@ class MainActivity : FlutterActivity() {
                             val flags = call.argument<Int>("flags") ?: 0
                             val preferredDeviceId = call.argument<Int>("preferredDeviceId")
                             val filePath = call.argument<String>("filePath")
+                            val offload = call.argument<Boolean>("offload") ?: false
 
                             startPlayback(
                                     instanceId,
@@ -198,7 +199,8 @@ class MainActivity : FlutterActivity() {
                                     contentType,
                                     flags,
                                     preferredDeviceId,
-                                    filePath
+                                    filePath,
+                                    offload
                             )
                             result.success(null)
                         }
@@ -503,7 +505,8 @@ class MainActivity : FlutterActivity() {
             contentType: Int,
             flags: Int,
             preferredDeviceId: Int?,
-            filePath: String?
+            filePath: String?,
+            offload: Boolean
     ) {
         stopPlayback(instanceId)
 
@@ -521,48 +524,31 @@ class MainActivity : FlutterActivity() {
                         .setFlags(flags)
                         .build()
 
-        val audioFormatObj =
-                AudioFormat.Builder()
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(channelConfig)
-                        .setEncoding(audioFormat)
-                        .build()
-
-        val audioTrack =
-                AudioTrack(
-                        audioAttributes,
-                        audioFormatObj,
-                        bufferSize,
-                        AudioTrack.MODE_STREAM,
-                        AudioManager.AUDIO_SESSION_ID_GENERATE
-                )
-
-        audioTracks[instanceId] = audioTrack
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && preferredDeviceId != null) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            val preferredDevice = devices.firstOrNull { it.id == preferredDeviceId }
-            if (preferredDevice != null) {
-                audioTrack.preferredDevice = preferredDevice
-            }
-        }
-
-        audioTrack.play()
         isPlayingMap[instanceId] = true
         isPausedMap[instanceId] = false
 
         val playbackThread = Thread {
             if (filePath != null) {
-                playLocalFile(instanceId, audioTrack, filePath)
-            } else {
-                playSineWave(
+                playLocalFile(
                         instanceId,
-                        audioTrack,
+                        audioAttributes,
                         sampleRate,
                         channelConfig,
                         audioFormat,
-                        bufferSize
+                        bufferSize,
+                        preferredDeviceId,
+                        filePath,
+                        offload
+                )
+            } else {
+                playSineWave(
+                        instanceId,
+                        audioAttributes,
+                        sampleRate,
+                        channelConfig,
+                        audioFormat,
+                        bufferSize,
+                        preferredDeviceId
                 )
             }
         }
@@ -570,7 +556,17 @@ class MainActivity : FlutterActivity() {
         playbackThread.start()
     }
 
-    private fun playLocalFile(instanceId: Int, audioTrack: AudioTrack, filePath: String) {
+    private fun playLocalFile(
+            instanceId: Int,
+            audioAttributes: AudioAttributes,
+            sampleRate: Int,
+            channelConfig: Int,
+            audioFormat: Int,
+            bufferSize: Int,
+            preferredDeviceId: Int?,
+            filePath: String,
+            offload: Boolean
+    ) {
         val extractor = MediaExtractor()
         try {
             extractor.setDataSource(filePath)
@@ -598,6 +594,165 @@ class MainActivity : FlutterActivity() {
         extractor.selectTrack(audioTrackIndex)
         val format = extractor.getTrackFormat(audioTrackIndex)
         val mime = format.getString(MediaFormat.KEY_MIME) ?: return
+        var useOffload = false
+        var offloadTrack: AudioTrack? = null
+        val isTearDown = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        if (offload && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val encodingForOffload = getAudioFormatForMime(mime)
+            if (encodingForOffload != AudioFormat.ENCODING_INVALID) {
+                val trackSampleRate =
+                        if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                                format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        else sampleRate
+                val trackChannelCount =
+                        if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                                format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        else 1
+                val trackChannelConfig =
+                        when (trackChannelCount) {
+                            1 -> AudioFormat.CHANNEL_OUT_MONO
+                            2 -> AudioFormat.CHANNEL_OUT_STEREO
+                            else -> AudioFormat.CHANNEL_OUT_MONO
+                        }
+
+                val offloadAudioFormat =
+                        AudioFormat.Builder()
+                                .setSampleRate(trackSampleRate)
+                                .setChannelMask(trackChannelConfig)
+                                .setEncoding(encodingForOffload)
+                                .build()
+
+                if (AudioManager.isOffloadedPlaybackSupported(offloadAudioFormat, audioAttributes)
+                ) {
+                    val bufferSizeInBytes = 256 * 1024
+                    try {
+                        if (isPlayingMap[instanceId] != true) {
+                            extractor.release()
+                            return
+                        }
+                        offloadTrack =
+                                AudioTrack.Builder()
+                                        .setAudioAttributes(audioAttributes)
+                                        .setAudioFormat(offloadAudioFormat)
+                                        .setBufferSizeInBytes(bufferSizeInBytes)
+                                        .setTransferMode(AudioTrack.MODE_STREAM)
+                                        .setOffloadedPlayback(true)
+                                        .build()
+
+                        if (preferredDeviceId != null) {
+                            val audioManager =
+                                    getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                            val preferredDevice = devices.firstOrNull { it.id == preferredDeviceId }
+                            if (preferredDevice != null) {
+                                offloadTrack.preferredDevice = preferredDevice
+                            }
+                        }
+
+                        offloadTrack.registerStreamEventCallback(
+                                { r -> r.run() },
+                                object : AudioTrack.StreamEventCallback() {
+                                    override fun onTearDown(track: AudioTrack) {
+                                        Log.i("AudioTest", "Offload track tear down!")
+                                        isTearDown.set(true)
+                                    }
+                                }
+                        )
+                        audioTracks[instanceId] = offloadTrack
+                        offloadTrack.play()
+                        useOffload = true
+                        Log.i("AudioTest", "Started compress offload playback")
+                    } catch (e: Exception) {
+                        Log.e("AudioTest", "Failed to create offloaded AudioTrack: $e")
+                        useOffload = false
+                    }
+                } else {
+                    Log.i("AudioTest", "Offload not supported, falling back to PCM")
+                }
+            }
+        }
+
+        if (useOffload && offloadTrack != null) {
+            val buffer = java.nio.ByteBuffer.allocateDirect(256 * 1024)
+            while (isPlayingMap[instanceId] == true) {
+                if (isPausedMap[instanceId] == true) {
+                    Thread.sleep(50)
+                    continue
+                }
+                if (isTearDown.get()) {
+                    Log.i("AudioTest", "Tearing down offload track, falling back to PCM")
+                    break
+                }
+
+                buffer.clear()
+                val sampleSize = extractor.readSampleData(buffer, 0)
+                if (sampleSize < 0) {
+                    break // EOS
+                }
+
+                val bytes = ByteArray(sampleSize)
+                buffer.get(bytes)
+
+                val written = offloadTrack.write(bytes, 0, sampleSize, AudioTrack.WRITE_BLOCKING)
+                if (written > 0) {
+                    extractor.advance()
+                }
+
+                // Send 0 amplitude for offload since we can't calculate it from compressed data
+                // easily
+                runOnUiThread { eventSink?.success(mapOf("id" to instanceId, "amp" to 0.0)) }
+            }
+
+            try {
+                offloadTrack.stop()
+            } catch (e: Exception) {}
+            offloadTrack.release()
+
+            if (isTearDown.get() && isPlayingMap[instanceId] == true) {
+                // FALLBACK to PCM
+                extractor.seekTo(extractor.sampleTime, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                Log.i("AudioTest", "Falling back to PCM playback at sync frame")
+            } else {
+                extractor.release()
+                if (isPlayingMap[instanceId] == true) {
+                    runOnUiThread { stopPlayback(instanceId) }
+                }
+                return
+            }
+        }
+
+        if (isPlayingMap[instanceId] != true) {
+            extractor.release()
+            return
+        }
+
+        Log.i("AudioTest", "Starting PCM playback")
+        val pcmAudioFormatObj =
+                AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(audioFormat)
+                        .build()
+
+        val audioTrack =
+                AudioTrack(
+                        audioAttributes,
+                        pcmAudioFormatObj,
+                        bufferSize,
+                        AudioTrack.MODE_STREAM,
+                        AudioManager.AUDIO_SESSION_ID_GENERATE
+                )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && preferredDeviceId != null) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val preferredDevice = devices.firstOrNull { it.id == preferredDeviceId }
+            if (preferredDevice != null) {
+                audioTrack.preferredDevice = preferredDevice
+            }
+        }
+        audioTracks[instanceId] = audioTrack
+        audioTrack.play()
 
         val codec: MediaCodec
         try {
@@ -699,12 +854,43 @@ class MainActivity : FlutterActivity() {
 
     private fun playSineWave(
             instanceId: Int,
-            audioTrack: AudioTrack,
+            audioAttributes: AudioAttributes,
             sampleRate: Int,
             channelConfig: Int,
             audioFormat: Int,
-            bufferSize: Int
+            bufferSize: Int,
+            preferredDeviceId: Int?
     ) {
+        if (isPlayingMap[instanceId] != true) {
+            return
+        }
+
+        val pcmAudioFormatObj =
+                AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(audioFormat)
+                        .build()
+
+        val audioTrack =
+                AudioTrack(
+                        audioAttributes,
+                        pcmAudioFormatObj,
+                        bufferSize,
+                        AudioTrack.MODE_STREAM,
+                        AudioManager.AUDIO_SESSION_ID_GENERATE
+                )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && preferredDeviceId != null) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val preferredDevice = devices.firstOrNull { it.id == preferredDeviceId }
+            if (preferredDevice != null) {
+                audioTrack.preferredDevice = preferredDevice
+            }
+        }
+        audioTracks[instanceId] = audioTrack
+        audioTrack.play()
+
         val frequency = 440.0 // A4 note
         var angle = 0.0
         val angleIncrement = 2.0 * Math.PI * frequency / sampleRate
@@ -1144,5 +1330,15 @@ class MainActivity : FlutterActivity() {
         audioRecords[instanceId]?.stop()
         audioRecords[instanceId]?.release()
         audioRecords.remove(instanceId)
+    }
+
+    private fun getAudioFormatForMime(mime: String): Int {
+        return when (mime) {
+            MediaFormat.MIMETYPE_AUDIO_MPEG -> AudioFormat.ENCODING_MP3
+            MediaFormat.MIMETYPE_AUDIO_AAC -> AudioFormat.ENCODING_AAC_LC
+            MediaFormat.MIMETYPE_AUDIO_OPUS -> AudioFormat.ENCODING_OPUS
+            "audio/mp4a-latm" -> AudioFormat.ENCODING_AAC_LC
+            else -> AudioFormat.ENCODING_INVALID // or default
+        }
     }
 }

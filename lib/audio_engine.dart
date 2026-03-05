@@ -215,6 +215,7 @@ class AudioEngine {
     required int flags,
     int? preferredDeviceId,
     String? filePath,
+    bool offload = false,
   }) async {
     try {
       await _methodChannel.invokeMethod('startPlayback', {
@@ -227,6 +228,7 @@ class AudioEngine {
         'flags': flags,
         'preferredDeviceId': preferredDeviceId,
         'filePath': filePath,
+        'offload': offload,
       });
     } on PlatformException catch (e) {
       debugPrint("Failed to start playback: '${e.message}'.");
