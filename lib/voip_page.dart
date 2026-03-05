@@ -30,6 +30,7 @@ class VoIPConfigWidget extends StatefulWidget {
 
 class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   bool _isCalling = false;
+  bool _isRinging = false;
   bool _saveToFile = false;
   String? _savedFilePath;
   late final int _instanceId;
@@ -56,7 +57,9 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   final int _selectedMode = 3; // MODE_IN_COMMUNICATION default
 
   final Queue<double> _amplitudes = Queue();
+  final ValueNotifier<int> _ampUpdateNotifier = ValueNotifier<int>(0);
   StreamSubscription? _amplitudeSub;
+  StreamSubscription? _deviceChangeSub;
   static const int _maxAmplitudes = 100;
 
   int? _originalMode;
@@ -66,16 +69,20 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     super.initState();
     _instanceId = hashCode;
     _loadDevices();
+    _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
+      _loadDevices();
+    });
     for (int i = 0; i < _maxAmplitudes; i++) {
       _amplitudes.add(0.0);
     }
   }
 
-  @override
   void dispose() {
     _txSampleRateController.dispose();
     _rxSampleRateController.dispose();
+    _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel();
+    _deviceChangeSub?.cancel();
     _stopCall();
     super.dispose();
   }
@@ -87,6 +94,25 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
       setState(() {
         _inputDevices = inputs;
         _outputDevices = outputs;
+
+        if (_selectedInputDevice != null) {
+          try {
+            _selectedInputDevice = inputs.firstWhere(
+              (d) => d.id == _selectedInputDevice!.id,
+            );
+          } catch (_) {
+            _selectedInputDevice = null;
+          }
+        }
+        if (_selectedOutputDevice != null) {
+          try {
+            _selectedOutputDevice = outputs.firstWhere(
+              (d) => d.id == _selectedOutputDevice!.id,
+            );
+          } catch (_) {
+            _selectedOutputDevice = null;
+          }
+        }
       });
     }
   }
@@ -94,6 +120,7 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   void _startCall() async {
     setState(() {
       _isCalling = true;
+      _isRinging = true;
       _savedFilePath = null;
     });
 
@@ -136,6 +163,10 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     await AudioEngine.stopPlayback(ringtoneId);
 
     if (!mounted || !_isCalling) return;
+
+    setState(() {
+      _isRinging = false;
+    });
 
     // 3. Normal VoIP setup
     await AudioEngine.setAudioMode(_selectedMode);
@@ -180,12 +211,11 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
             _savedFilePath = event['path'] as String;
           });
         } else if (event.containsKey('amp')) {
-          setState(() {
-            _amplitudes.addLast(event['amp'] as double);
-            if (_amplitudes.length > _maxAmplitudes) {
-              _amplitudes.removeFirst();
-            }
-          });
+          _amplitudes.addLast(event['amp'] as double);
+          if (_amplitudes.length > _maxAmplitudes) {
+            _amplitudes.removeFirst();
+          }
+          _ampUpdateNotifier.value++;
         }
       }
     });
@@ -194,11 +224,13 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   void _stopCall() async {
     setState(() {
       _isCalling = false;
+      _isRinging = false;
       _amplitudes.clear();
       for (int i = 0; i < _maxAmplitudes; i++) {
         _amplitudes.add(0.0);
       }
     });
+    _ampUpdateNotifier.value++;
     await AudioEngine.stopRecording(_instanceId);
     await AudioEngine.stopPlayback(_instanceId + 1);
     await AudioEngine.stopPlayback(_instanceId + 2);
@@ -262,11 +294,15 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
                   AudioConfigFields.deviceDropdown(
                     label: 'RX Output Device (Speaker/Earpiece)',
                     initialSelection: _selectedOutputDevice,
-                    enabled: !_isCalling,
+                    enabled: !_isRinging,
                     devices: _outputDevices,
                     defaultLabel: "Default Output",
-                    onSelected: (v) =>
-                        setState(() => _selectedOutputDevice = v),
+                    onSelected: (v) async {
+                      setState(() => _selectedOutputDevice = v);
+                      if (_isCalling && !_isRinging) {
+                        await AudioEngine.setCommunicationDevice(v?.id);
+                      }
+                    },
                   ),
                   const SizedBox(height: 24),
 
@@ -348,9 +384,14 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
           ),
           const SizedBox(height: 8),
 
-          WaveformDisplay(
-            amplitudes: _amplitudes,
-            color: Theme.of(context).colorScheme.primary,
+          ValueListenableBuilder<int>(
+            valueListenable: _ampUpdateNotifier,
+            builder: (context, _, __) {
+              return WaveformDisplay(
+                amplitudes: _amplitudes,
+                color: Theme.of(context).colorScheme.primary,
+              );
+            },
           ),
           const SizedBox(height: 8),
 

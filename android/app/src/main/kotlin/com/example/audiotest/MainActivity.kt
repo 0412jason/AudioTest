@@ -25,6 +25,7 @@ import kotlin.math.sin
 class MainActivity : FlutterActivity() {
     private val AUDIO_CHANNEL = "com.example.audiotest/audio"
     private val AMPLITUDE_CHANNEL = "com.example.audiotest/amplitude"
+    private val DEVICE_CHANGE_CHANNEL = "com.example.audiotest/deviceChanges"
 
     // Maps to track active instances
     private val audioTracks = mutableMapOf<Int, AudioTrack>()
@@ -37,6 +38,8 @@ class MainActivity : FlutterActivity() {
     private val isRecordingMap = mutableMapOf<Int, Boolean>()
 
     private var eventSink: EventChannel.EventSink? = null
+    private var deviceChangeEventSink: EventChannel.EventSink? = null
+    private var audioDeviceCallback: android.media.AudioDeviceCallback? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -53,6 +56,24 @@ class MainActivity : FlutterActivity() {
 
                             override fun onCancel(arguments: Any?) {
                                 eventSink = null
+                            }
+                        }
+                )
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANGE_CHANNEL)
+                .setStreamHandler(
+                        object : EventChannel.StreamHandler {
+                            override fun onListen(
+                                    arguments: Any?,
+                                    events: EventChannel.EventSink?
+                            ) {
+                                deviceChangeEventSink = events
+                                registerAudioDeviceCallback()
+                            }
+
+                            override fun onCancel(arguments: Any?) {
+                                deviceChangeEventSink = null
+                                unregisterAudioDeviceCallback()
                             }
                         }
                 )
@@ -278,6 +299,39 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+    }
+
+    private fun registerAudioDeviceCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioDeviceCallback =
+                    object : android.media.AudioDeviceCallback() {
+                        override fun onAudioDevicesAdded(
+                                addedDevices: Array<out AudioDeviceInfo>?
+                        ) {
+                            super.onAudioDevicesAdded(addedDevices)
+                            runOnUiThread { deviceChangeEventSink?.success("changed") }
+                        }
+
+                        override fun onAudioDevicesRemoved(
+                                removedDevices: Array<out AudioDeviceInfo>?
+                        ) {
+                            super.onAudioDevicesRemoved(removedDevices)
+                            runOnUiThread { deviceChangeEventSink?.success("changed") }
+                        }
+                    }
+            audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
+        }
+    }
+
+    private fun unregisterAudioDeviceCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioDeviceCallback?.let {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                audioManager.unregisterAudioDeviceCallback(it)
+                audioDeviceCallback = null
+            }
+        }
     }
 
     private fun getDeviceTypeName(type: Int): String {

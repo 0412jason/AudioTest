@@ -58,7 +58,9 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   Map<String, int> _audioModes = {};
 
   final Queue<double> _amplitudes = Queue();
+  final ValueNotifier<int> _ampUpdateNotifier = ValueNotifier<int>(0);
   StreamSubscription? _amplitudeSub;
+  StreamSubscription? _deviceChangeSub;
   static const int _maxAmplitudes = 100;
 
   int? _originalMode; // Store original mode before modifying
@@ -71,6 +73,9 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     super.initState();
     _instanceId = hashCode;
     _loadDevices();
+    _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
+      _loadDevices();
+    });
     _loadAudioAttributesOptions();
     for (int i = 0; i < _maxAmplitudes; i++) {
       _amplitudes.add(0.0);
@@ -94,9 +99,10 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     }
   }
 
-  @override
   void dispose() {
     _sampleRateController.dispose();
+    _ampUpdateNotifier.dispose();
+    _deviceChangeSub?.cancel();
     _stopPlayback();
     super.dispose();
   }
@@ -106,6 +112,15 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     if (mounted) {
       setState(() {
         _outputDevices = devices;
+        if (_selectedDevice != null) {
+          try {
+            _selectedDevice = devices.firstWhere(
+              (d) => d.id == _selectedDevice!.id,
+            );
+          } catch (_) {
+            _selectedDevice = null;
+          }
+        }
       });
     }
   }
@@ -137,12 +152,13 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
 
     _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
       if (mounted && event['id'] == _instanceId) {
-        setState(() {
+        if (event.containsKey('amp')) {
           _amplitudes.addLast(event['amp'] as double);
           if (_amplitudes.length > _maxAmplitudes) {
             _amplitudes.removeFirst();
           }
-        });
+          _ampUpdateNotifier.value++;
+        }
       }
     });
   }
@@ -151,11 +167,12 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     setState(() {
       _isPlaying = false;
       _isPaused = false;
-      _amplitudes.clear();
-      for (int i = 0; i < _maxAmplitudes; i++) {
-        _amplitudes.add(0.0);
-      }
     });
+    _amplitudes.clear();
+    for (int i = 0; i < _maxAmplitudes; i++) {
+      _amplitudes.add(0.0);
+    }
+    _ampUpdateNotifier.value++;
     _amplitudeSub?.cancel();
     await AudioEngine.stopPlayback(_instanceId);
 
@@ -452,9 +469,14 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
           ),
           const SizedBox(height: 8),
 
-          WaveformDisplay(
-            amplitudes: _amplitudes,
-            color: Theme.of(context).colorScheme.primary,
+          ValueListenableBuilder<int>(
+            valueListenable: _ampUpdateNotifier,
+            builder: (context, _, __) {
+              return WaveformDisplay(
+                amplitudes: _amplitudes,
+                color: Theme.of(context).colorScheme.primary,
+              );
+            },
           ),
           const SizedBox(height: 8),
 

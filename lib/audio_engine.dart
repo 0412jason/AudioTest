@@ -54,8 +54,12 @@ class AudioEngine {
   static const EventChannel _amplitudeEventChannel = EventChannel(
     'com.example.audiotest/amplitude',
   );
+  static const EventChannel _deviceChangeEventChannel = EventChannel(
+    'com.example.audiotest/deviceChanges',
+  );
 
   static Stream<Map<dynamic, dynamic>>? _amplitudeStream;
+  static Stream<void>? _deviceChangeStream;
 
   static Future<List<AudioDevice>> getAudioDevices(bool isOutput) async {
     try {
@@ -298,5 +302,10 @@ class AudioEngine {
       (event) => event as Map<dynamic, dynamic>,
     );
     return _amplitudeStream!;
+  }
+
+  static Stream<void> get deviceChangeStream {
+    _deviceChangeStream ??= _deviceChangeEventChannel.receiveBroadcastStream();
+    return _deviceChangeStream!;
   }
 }

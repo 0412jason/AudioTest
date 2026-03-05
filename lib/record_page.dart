@@ -53,7 +53,9 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   int? _originalMode; // Store original mode before modifying
 
   final Queue<double> _amplitudes = Queue();
+  final ValueNotifier<int> _ampUpdateNotifier = ValueNotifier<int>(0);
   StreamSubscription? _amplitudeSub;
+  StreamSubscription? _deviceChangeSub;
   static const int _maxAmplitudes = 100;
 
   @override
@@ -61,27 +63,29 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
     super.initState();
     _instanceId = hashCode;
     _loadOptions();
+    _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
+      _loadDevices();
+    });
     for (int i = 0; i < _maxAmplitudes; i++) {
       _amplitudes.add(0.0);
     }
   }
 
-  @override
   void dispose() {
     _sampleRateController.dispose();
+    _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel(); // Cancel subscription here
+    _deviceChangeSub?.cancel();
     _stopRecording();
     super.dispose();
   }
 
   Future<void> _loadOptions() async {
-    final devices = await AudioEngine.getAudioDevices(false);
+    await _loadDevices();
     final sources = await AudioEngine.getAudioSourceOptions();
     final modes = await AudioEngine.getAudioModeOptions();
     if (mounted) {
       setState(() {
-        _inputDevices = devices;
-
         // Sort the audio sources by their integer values
         var sortedEntries = sources.entries.toList()
           ..sort((a, b) => a.value.compareTo(b.value));
@@ -107,6 +111,24 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
             _selectedMode = 0; // Default to MODE_NORMAL (0)
           } else {
             _selectedMode = _audioModes.values.first;
+          }
+        }
+      });
+    }
+  }
+
+  Future<void> _loadDevices() async {
+    final devices = await AudioEngine.getAudioDevices(false);
+    if (mounted) {
+      setState(() {
+        _inputDevices = devices;
+        if (_selectedDevice != null) {
+          try {
+            _selectedDevice = devices.firstWhere(
+              (d) => d.id == _selectedDevice!.id,
+            );
+          } catch (_) {
+            _selectedDevice = null;
           }
         }
       });
@@ -143,12 +165,11 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
             _savedFilePath = event['path'] as String;
           });
         } else if (event.containsKey('amp')) {
-          setState(() {
-            _amplitudes.addLast(event['amp'] as double);
-            if (_amplitudes.length > _maxAmplitudes) {
-              _amplitudes.removeFirst();
-            }
-          });
+          _amplitudes.addLast(event['amp'] as double);
+          if (_amplitudes.length > _maxAmplitudes) {
+            _amplitudes.removeFirst();
+          }
+          _ampUpdateNotifier.value++;
         }
       }
     });
@@ -162,6 +183,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
         _amplitudes.add(0.0);
       }
     });
+    _ampUpdateNotifier.value++;
     // Do not cancel _amplitudeSub here, wait for the final 'path' event.
     await AudioEngine.stopRecording(_instanceId);
 
@@ -309,9 +331,14 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
           ),
           const SizedBox(height: 8),
 
-          WaveformDisplay(
-            amplitudes: _amplitudes,
-            color: Theme.of(context).colorScheme.secondary,
+          ValueListenableBuilder<int>(
+            valueListenable: _ampUpdateNotifier,
+            builder: (context, _, __) {
+              return WaveformDisplay(
+                amplitudes: _amplitudes,
+                color: Theme.of(context).colorScheme.primary,
+              );
+            },
           ),
           const SizedBox(height: 8),
 
