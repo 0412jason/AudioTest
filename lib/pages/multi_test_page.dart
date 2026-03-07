@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'record_page.dart';
 import 'playback_page.dart';
 import 'voip_page.dart';
-import 'widgets/split_view_layout.dart';
-import 'widgets/audio_config_fields.dart';
+import 'package:audiotest/widgets/split_view_layout.dart';
+import 'package:audiotest/widgets/audio_config_fields.dart';
 
 class MultiTestPage extends StatelessWidget {
   const MultiTestPage({super.key});

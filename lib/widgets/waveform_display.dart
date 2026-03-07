@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:collection';
-import '../waveform_painter.dart';
+import 'package:audiotest/widgets/waveform_painter.dart';
 
 class WaveformDisplay extends StatelessWidget {
   final Queue<double> amplitudes;

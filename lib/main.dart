@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:audiotest/playback_page.dart';
-import 'package:audiotest/record_page.dart';
-import 'package:audiotest/menu_tracker.dart';
-import 'package:audiotest/voip_page.dart';
-import 'package:audiotest/multi_test_page.dart';
+import 'package:audiotest/pages/playback_page.dart';
+import 'package:audiotest/pages/record_page.dart';
+import 'package:audiotest/widgets/menu_tracker.dart';
+import 'package:audiotest/pages/voip_page.dart';
+import 'package:audiotest/pages/multi_test_page.dart';
 
 void main() {
   runApp(const AudioTestApp());

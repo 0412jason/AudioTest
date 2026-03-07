@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../menu_tracker.dart';
-import '../audio_engine.dart';
+import 'package:audiotest/widgets/menu_tracker.dart';
+import 'package:audiotest/audio_engine.dart';
 
 class AudioConfigFields {
   static const Map<int, String> inputChannelMap = {

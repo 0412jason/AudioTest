@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../audio_engine.dart';
-import 'audio_config_fields.dart';
+import 'package:audiotest/audio_engine.dart';
+import 'package:audiotest/widgets/audio_config_fields.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers (package-internal)

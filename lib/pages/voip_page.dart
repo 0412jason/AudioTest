@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:collection';
-import 'audio_engine.dart';
-import 'widgets/split_view_layout.dart';
-import 'widgets/audio_config_fields.dart';
-import 'widgets/waveform_display.dart';
-import 'widgets/audio_info_card.dart';
+import 'package:audiotest/audio_engine.dart';
+import 'package:audiotest/widgets/split_view_layout.dart';
+import 'package:audiotest/widgets/audio_config_fields.dart';
+import 'package:audiotest/widgets/waveform_display.dart';
+import 'package:audiotest/widgets/audio_info_card.dart';
 
 class VoIPPage extends StatelessWidget {
   const VoIPPage({super.key});
