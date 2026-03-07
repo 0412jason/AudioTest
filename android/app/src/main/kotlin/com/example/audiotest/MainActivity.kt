@@ -109,7 +109,7 @@ class MainActivity : FlutterActivity() {
                             id,
                             call.argument<Int>("sampleRate") ?: 48000,
                             call.argument<Int>("channelConfig") ?: android.media.AudioFormat.CHANNEL_OUT_MONO,
-                            call.argument<Int>("audioFormat") ?: android.media.AudioFormat.ENCODING_PCM_16BIT,
+                            call.argument<Int>("audioFormat") ?: android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED,
                             call.argument<Int>("usage") ?: android.media.AudioAttributes.USAGE_MEDIA,
                             call.argument<Int>("contentType") ?: android.media.AudioAttributes.CONTENT_TYPE_MUSIC,
                             call.argument<Int>("flags") ?: 0,
@@ -144,7 +144,7 @@ class MainActivity : FlutterActivity() {
                             id,
                             call.argument<Int>("sampleRate") ?: 48000,
                             call.argument<Int>("channelConfig") ?: android.media.AudioFormat.CHANNEL_IN_MONO,
-                            call.argument<Int>("audioFormat") ?: android.media.AudioFormat.ENCODING_PCM_16BIT,
+                            call.argument<Int>("audioFormat") ?: android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED,
                             call.argument<Int>("audioSource") ?: 0,
                             call.argument<Boolean>("saveToFile") ?: false,
                             call.argument<Int>("preferredDeviceId")

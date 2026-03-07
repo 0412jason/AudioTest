@@ -94,7 +94,7 @@ object AudioInfoHelper {
             val pcmEncoding =
                 if (fmt.containsKey(MediaFormat.KEY_PCM_ENCODING))
                     fmt.getInteger(MediaFormat.KEY_PCM_ENCODING)
-                else AudioFormat.ENCODING_PCM_16BIT
+                else AudioFormat.ENCODING_PCM_24BIT_PACKED
 
             val channelConfig = when (channelCount) {
                 1 -> AudioFormat.CHANNEL_OUT_MONO

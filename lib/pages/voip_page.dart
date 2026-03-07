@@ -147,7 +147,7 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
       instanceId: ringtoneId,
       sampleRate: 48000,
       channelConfig: 12, // Stereo out
-      audioFormat: 2, // 16-bit PCM
+      audioFormat: 21, // 24-bit PCM
       usage: 6, // USAGE_NOTIFICATION_RINGTONE
       contentType: 4, // CONTENT_TYPE_SONIFICATION
       flags: 0,
