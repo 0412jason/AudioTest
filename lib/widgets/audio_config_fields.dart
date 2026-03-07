@@ -3,6 +3,22 @@ import '../menu_tracker.dart';
 import '../audio_engine.dart';
 
 class AudioConfigFields {
+  static const Map<int, String> inputChannelMap = {
+    16: "Mono (In)",
+    12: "Stereo (In)",
+  };
+
+  static const Map<int, String> outputChannelMap = {
+    4: "Mono (Out)",
+    12: "Stereo (Out)",
+  };
+
+  static const Map<int, String> audioFormatMap = {
+    3: "8-bit PCM",
+    2: "16-bit PCM",
+    21: "24-bit PCM",
+    4: "Float PCM",
+  };
   static Widget sampleRateField({
     required TextEditingController controller,
     required bool enabled,
@@ -51,15 +67,9 @@ class AudioConfigFields {
       label: customLabel ?? (isInput ? 'Channel Config' : 'Channel Config'),
       initialSelection: initialSelection,
       enabled: enabled,
-      entries: isInput
-          ? const [
-              DropdownMenuEntry(value: 16, label: "Mono (In)"),
-              DropdownMenuEntry(value: 12, label: "Stereo (In)"),
-            ]
-          : const [
-              DropdownMenuEntry(value: 4, label: "Mono (Out)"),
-              DropdownMenuEntry(value: 12, label: "Stereo (Out)"),
-            ],
+      entries: (isInput ? inputChannelMap : outputChannelMap).entries
+          .map((e) => DropdownMenuEntry(value: e.key, label: e.value))
+          .toList(),
       onSelected: onSelected,
     );
   }
@@ -74,12 +84,9 @@ class AudioConfigFields {
       label: label,
       initialSelection: initialSelection,
       enabled: enabled,
-      entries: const [
-        DropdownMenuEntry(value: 3, label: "8-bit PCM"),
-        DropdownMenuEntry(value: 2, label: "16-bit PCM"),
-        DropdownMenuEntry(value: 21, label: "24-bit PCM"),
-        DropdownMenuEntry(value: 4, label: "32-bit Float"),
-      ],
+      entries: audioFormatMap.entries
+          .map((e) => DropdownMenuEntry(value: e.key, label: e.value))
+          .toList(),
       onSelected: onSelected,
     );
   }

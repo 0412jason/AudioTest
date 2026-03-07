@@ -5,6 +5,7 @@ import 'audio_engine.dart';
 import 'widgets/split_view_layout.dart';
 import 'widgets/audio_config_fields.dart';
 import 'widgets/waveform_display.dart';
+import 'widgets/audio_info_card.dart';
 
 class RecordPage extends StatelessWidget {
   const RecordPage({super.key});
@@ -56,13 +57,16 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   final ValueNotifier<int> _ampUpdateNotifier = ValueNotifier<int>(0);
   StreamSubscription? _amplitudeSub;
   StreamSubscription? _deviceChangeSub;
+  StreamSubscription? _audioInfoSub;
   static const int _maxAmplitudes = 100;
+
+  AudioInfo? _actualAudioInfo;
 
   @override
   void initState() {
     super.initState();
     _instanceId = hashCode;
-    _loadOptions();
+    AudioEngine.initAttributeMaps().then((_) => _loadOptions());
     _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
       _loadDevices();
     });
@@ -71,25 +75,27 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
     }
   }
 
+  @override
   void dispose() {
     _sampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel(); // Cancel subscription here
     _deviceChangeSub?.cancel();
+    _audioInfoSub?.cancel();
     _stopRecording();
     super.dispose();
   }
 
   Future<void> _loadOptions() async {
+    await AudioEngine.initAttributeMaps();
     await _loadDevices();
-    final sources = await AudioEngine.getAudioSourceOptions();
     final modes = await AudioEngine.getAudioModeOptions();
+    final sources = await AudioEngine.getAudioSourceOptions();
     if (mounted) {
       setState(() {
-        // Sort the audio sources by their integer values
-        var sortedEntries = sources.entries.toList()
+        var sortedSources = sources.entries.toList()
           ..sort((a, b) => a.value.compareTo(b.value));
-        _audioSources = Map.fromEntries(sortedEntries);
+        _audioSources = Map.fromEntries(sortedSources);
 
         if (_audioSources.isNotEmpty &&
             !_audioSources.values.contains(_selectedSource)) {
@@ -142,22 +148,10 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
       _originalMode = await AudioEngine.getAudioMode();
       await AudioEngine.setAudioMode(_selectedMode);
     }
-    await AudioEngine.startRecording(
-      instanceId: _instanceId,
-      sampleRate: sampleRate,
-      channelConfig: _selectedChannelConfig,
-      audioFormat: _selectedAudioFormat,
-      audioSource: _selectedSource,
-      saveToFile: _saveToFile,
-      preferredDeviceId: _selectedDevice?.id,
-    );
-    setState(() {
-      _isRecording = true;
-      _savedFilePath = null; // Clear previous path when starting
-    });
 
-    _amplitudeSub
-        ?.cancel(); // Cancel old subscription before starting a new one
+    // Subscribe BEFORE startRecording so we don't miss the initial event
+    // that the native side fires synchronously during startRecording.
+    _amplitudeSub?.cancel();
     _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
       if (mounted && event['id'] == _instanceId) {
         if (event.containsKey('path')) {
@@ -173,18 +167,43 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
         }
       }
     });
+
+    _audioInfoSub?.cancel();
+    _audioInfoSub = AudioEngine.audioInfoStream.listen((info) {
+      if (mounted && info.id == _instanceId) {
+        setState(() {
+          _actualAudioInfo = info;
+        });
+      }
+    });
+
+    await AudioEngine.startRecording(
+      instanceId: _instanceId,
+      sampleRate: sampleRate,
+      channelConfig: _selectedChannelConfig,
+      audioFormat: _selectedAudioFormat,
+      audioSource: _selectedSource,
+      saveToFile: _saveToFile,
+      preferredDeviceId: _selectedDevice?.id,
+    );
+    setState(() {
+      _isRecording = true;
+      _savedFilePath = null; // Clear previous path when starting
+    });
   }
 
   void _stopRecording() async {
     setState(() {
       _isRecording = false;
+      _actualAudioInfo = null;
       _amplitudes.clear();
       for (int i = 0; i < _maxAmplitudes; i++) {
         _amplitudes.add(0.0);
       }
+      _ampUpdateNotifier.value++;
     });
-    _ampUpdateNotifier.value++;
-    // Do not cancel _amplitudeSub here, wait for the final 'path' event.
+    _amplitudeSub?.cancel();
+    _audioInfoSub?.cancel();
     await AudioEngine.stopRecording(_instanceId);
 
     if (_selectedMode != -3 && _originalMode != null) {
@@ -328,6 +347,14 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
                       'Saved: $_savedFilePath',
                       style: const TextStyle(fontSize: 12, color: Colors.green),
                     ),
+
+                  if (_isRecording && _actualAudioInfo != null) ...[
+                    const SizedBox(height: 16),
+                    AudioInfoCard(
+                      title: 'Actual AudioRecord Info',
+                      info: _actualAudioInfo!,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -336,7 +363,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
 
           ValueListenableBuilder<int>(
             valueListenable: _ampUpdateNotifier,
-            builder: (context, _, __) {
+            builder: (context, _, _) {
               return WaveformDisplay(
                 amplitudes: _amplitudes,
                 color: Theme.of(context).colorScheme.primary,

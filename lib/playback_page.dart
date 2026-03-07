@@ -6,6 +6,7 @@ import 'audio_engine.dart';
 import 'widgets/split_view_layout.dart';
 import 'widgets/audio_config_fields.dart';
 import 'widgets/waveform_display.dart';
+import 'widgets/audio_info_card.dart';
 
 class PlaybackPage extends StatelessWidget {
   const PlaybackPage({super.key});
@@ -69,28 +70,31 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   // Non-null when a local file has been analysed
   FileAudioInfo? _detectedFileInfo;
 
+  AudioInfo? _actualAudioInfo;
+  StreamSubscription? _audioInfoSub;
+
   @override
   void initState() {
     super.initState();
     _instanceId = hashCode;
+    AudioEngine.initAttributeMaps().then((_) => _loadAudioAttributesOptions());
     _loadDevices();
     _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
       _loadDevices();
     });
-    _loadAudioAttributesOptions();
     for (int i = 0; i < _maxAmplitudes; i++) {
       _amplitudes.add(0.0);
     }
   }
 
   Future<void> _loadAudioAttributesOptions() async {
-    final options = await AudioEngine.getAudioAttributesOptions();
+    await AudioEngine.initAttributeMaps();
     final modes = await AudioEngine.getAudioModeOptions();
     if (mounted) {
       setState(() {
-        _usagesMap = options['usages'] ?? {};
-        _contentTypesMap = options['contentTypes'] ?? {};
-        _flagsMap = options['flags'] ?? {};
+        _usagesMap = AudioEngine.cachedUsagesMap;
+        _contentTypesMap = AudioEngine.cachedContentTypesMap;
+        _flagsMap = AudioEngine.cachedFlagsMap;
 
         var sortedModes = modes.entries.toList()
           ..sort((a, b) => a.value.compareTo(b.value));
@@ -100,10 +104,12 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     }
   }
 
+  @override
   void dispose() {
     _sampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _deviceChangeSub?.cancel();
+    _audioInfoSub?.cancel();
     _stopPlayback();
     super.dispose();
   }
@@ -163,12 +169,21 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
         }
       }
     });
+
+    _audioInfoSub = AudioEngine.audioInfoStream.listen((info) {
+      if (mounted && info.id == _instanceId) {
+        setState(() {
+          _actualAudioInfo = info;
+        });
+      }
+    });
   }
 
   void _stopPlayback() async {
     setState(() {
       _isPlaying = false;
       _isPaused = false;
+      _actualAudioInfo = null;
     });
     _amplitudes.clear();
     for (int i = 0; i < _maxAmplitudes; i++) {
@@ -176,6 +191,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
     }
     _ampUpdateNotifier.value++;
     _amplitudeSub?.cancel();
+    _audioInfoSub?.cancel();
     await AudioEngine.stopPlayback(_instanceId);
 
     if (_selectedMode != -3 && _originalMode != null) {
@@ -277,13 +293,13 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       value: _enableOffload,
-                      onChanged: _isPlaying
-                          ? null
-                          : (bool? value) {
-                              setState(() {
-                                _enableOffload = value ?? false;
-                              });
-                            },
+                      // TODO: enable this when we support it
+                      enabled: !_isPlaying && false,
+                      onChanged: (bool? value) {
+                        setState(() {
+                          _enableOffload = value ?? false;
+                        });
+                      },
                       controlAffinity: ListTileControlAffinity.leading,
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -481,6 +497,14 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
                     defaultLabel: "Default Routing",
                     onSelected: (v) => setState(() => _selectedDevice = v),
                   ),
+
+                  if (_isPlaying && _actualAudioInfo != null) ...[
+                    const SizedBox(height: 16),
+                    AudioInfoCard(
+                      title: 'Actual AudioTrack Info',
+                      info: _actualAudioInfo!,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -489,7 +513,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
 
           ValueListenableBuilder<int>(
             valueListenable: _ampUpdateNotifier,
-            builder: (context, _, __) {
+            builder: (context, _, _) {
               return WaveformDisplay(
                 amplitudes: _amplitudes,
                 color: Theme.of(context).colorScheme.primary,

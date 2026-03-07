@@ -5,6 +5,7 @@ import 'audio_engine.dart';
 import 'widgets/split_view_layout.dart';
 import 'widgets/audio_config_fields.dart';
 import 'widgets/waveform_display.dart';
+import 'widgets/audio_info_card.dart';
 
 class VoIPPage extends StatelessWidget {
   const VoIPPage({super.key});
@@ -60,14 +61,18 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   final ValueNotifier<int> _ampUpdateNotifier = ValueNotifier<int>(0);
   StreamSubscription? _amplitudeSub;
   StreamSubscription? _deviceChangeSub;
-  static const int _maxAmplitudes = 100;
-
   int? _originalMode;
+
+  AudioInfo? _actualRxAudioInfo;
+  AudioInfo? _actualTxAudioInfo;
+  StreamSubscription? _audioInfoSub;
+  static const int _maxAmplitudes = 100;
 
   @override
   void initState() {
     super.initState();
     _instanceId = hashCode;
+    AudioEngine.initAttributeMaps().then((_) => _loadAudioAttributesOptions());
     _loadDevices();
     _deviceChangeSub = AudioEngine.deviceChangeStream.listen((_) {
       _loadDevices();
@@ -77,14 +82,20 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     }
   }
 
+  @override
   void dispose() {
     _txSampleRateController.dispose();
     _rxSampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel();
     _deviceChangeSub?.cancel();
+    _audioInfoSub?.cancel();
     _stopCall();
     super.dispose();
+  }
+
+  Future<void> _loadAudioAttributesOptions() async {
+    await AudioEngine.initAttributeMaps();
   }
 
   Future<void> _loadDevices() async {
@@ -175,6 +186,39 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
     int txSampleRate = int.tryParse(_txSampleRateController.text) ?? 48000;
     int rxSampleRate = int.tryParse(_rxSampleRateController.text) ?? 48000;
 
+    // Subscribe BEFORE startPlayback/startRecording so we don't miss initial events.
+    _amplitudeSub?.cancel();
+    _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
+      if (mounted && event['id'] == _instanceId) {
+        if (event.containsKey('path')) {
+          setState(() {
+            _savedFilePath = event['path'] as String;
+          });
+        } else if (event.containsKey('amp')) {
+          _amplitudes.addLast(event['amp'] as double);
+          if (_amplitudes.length > _maxAmplitudes) {
+            _amplitudes.removeFirst();
+          }
+          _ampUpdateNotifier.value++;
+        }
+      }
+    });
+
+    _audioInfoSub?.cancel();
+    _audioInfoSub = AudioEngine.audioInfoStream.listen((info) {
+      if (mounted) {
+        if (info.id == _instanceId + 1) {
+          setState(() {
+            _actualRxAudioInfo = info;
+          });
+        } else if (info.id == _instanceId) {
+          setState(() {
+            _actualTxAudioInfo = info;
+          });
+        }
+      }
+    });
+
     // Start playback (receiver) sine wave
     await AudioEngine.startPlayback(
       instanceId: _instanceId + 1,
@@ -202,35 +246,21 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
       preferredDeviceId: _selectedInputDevice?.id,
       saveToFile: _saveToFile,
     );
-
-    _amplitudeSub?.cancel();
-    _amplitudeSub = AudioEngine.amplitudeStream.listen((event) {
-      if (mounted && event['id'] == _instanceId) {
-        if (event.containsKey('path')) {
-          setState(() {
-            _savedFilePath = event['path'] as String;
-          });
-        } else if (event.containsKey('amp')) {
-          _amplitudes.addLast(event['amp'] as double);
-          if (_amplitudes.length > _maxAmplitudes) {
-            _amplitudes.removeFirst();
-          }
-          _ampUpdateNotifier.value++;
-        }
-      }
-    });
   }
 
   void _stopCall() async {
     setState(() {
       _isCalling = false;
       _isRinging = false;
+      _actualRxAudioInfo = null;
+      _actualTxAudioInfo = null;
       _amplitudes.clear();
       for (int i = 0; i < _maxAmplitudes; i++) {
         _amplitudes.add(0.0);
       }
     });
     _ampUpdateNotifier.value++;
+    _audioInfoSub?.cancel();
     await AudioEngine.stopRecording(_instanceId);
     await AudioEngine.stopPlayback(_instanceId + 1);
     await AudioEngine.stopPlayback(_instanceId + 2);
@@ -381,6 +411,26 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
                         ),
                       ),
                     ),
+
+                  if (_isCalling &&
+                      !_isRinging &&
+                      _actualRxAudioInfo != null) ...[
+                    const SizedBox(height: 16),
+                    AudioInfoCard(
+                      title: 'Actual RX AudioTrack Info',
+                      info: _actualRxAudioInfo!,
+                    ),
+                  ],
+
+                  if (_isCalling &&
+                      !_isRinging &&
+                      _actualTxAudioInfo != null) ...[
+                    const SizedBox(height: 16),
+                    AudioInfoCard(
+                      title: 'Actual TX AudioRecord Info',
+                      info: _actualTxAudioInfo!,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -389,7 +439,7 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
 
           ValueListenableBuilder<int>(
             valueListenable: _ampUpdateNotifier,
-            builder: (context, _, __) {
+            builder: (context, _, _) {
               return WaveformDisplay(
                 amplitudes: _amplitudes,
                 color: Theme.of(context).colorScheme.primary,

@@ -26,12 +26,15 @@ class MainActivity : FlutterActivity() {
     private val AUDIO_CHANNEL = "com.example.audiotest/audio"
     private val AMPLITUDE_CHANNEL = "com.example.audiotest/amplitude"
     private val DEVICE_CHANGE_CHANNEL = "com.example.audiotest/deviceChanges"
+    private val AUDIO_TRACK_INFO_CHANNEL = "com.example.audiotest/audioTrackInfo"
+    private val AUDIO_RECORD_INFO_CHANNEL = "com.example.audiotest/audioRecordInfo"
 
     // Maps to track active instances
     private val audioTracks = mutableMapOf<Int, AudioTrack>()
     private val playbackThreads = mutableMapOf<Int, Thread>()
     private val isPlayingMap = mutableMapOf<Int, Boolean>()
     private val isPausedMap = mutableMapOf<Int, Boolean>()
+    private val audioAttributesMap = mutableMapOf<Int, AudioAttributes>()
 
     private val audioRecords = mutableMapOf<Int, AudioRecord>()
     private val recordThreads = mutableMapOf<Int, Thread>()
@@ -39,6 +42,8 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var deviceChangeEventSink: EventChannel.EventSink? = null
+    private var audioTrackInfoSink: EventChannel.EventSink? = null
+    private var audioRecordInfoSink: EventChannel.EventSink? = null
     private var audioDeviceCallback: android.media.AudioDeviceCallback? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -74,6 +79,38 @@ class MainActivity : FlutterActivity() {
                             override fun onCancel(arguments: Any?) {
                                 deviceChangeEventSink = null
                                 unregisterAudioDeviceCallback()
+                            }
+                        }
+                )
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, AUDIO_TRACK_INFO_CHANNEL)
+                .setStreamHandler(
+                        object : EventChannel.StreamHandler {
+                            override fun onListen(
+                                    arguments: Any?,
+                                    events: EventChannel.EventSink?
+                            ) {
+                                audioTrackInfoSink = events
+                            }
+
+                            override fun onCancel(arguments: Any?) {
+                                audioTrackInfoSink = null
+                            }
+                        }
+                )
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, AUDIO_RECORD_INFO_CHANNEL)
+                .setStreamHandler(
+                        object : EventChannel.StreamHandler {
+                            override fun onListen(
+                                    arguments: Any?,
+                                    events: EventChannel.EventSink?
+                            ) {
+                                audioRecordInfoSink = events
+                            }
+
+                            override fun onCancel(arguments: Any?) {
+                                audioRecordInfoSink = null
                             }
                         }
                 )
@@ -303,6 +340,81 @@ class MainActivity : FlutterActivity() {
                 }
     }
 
+    private fun sendAudioRecordInfo(instanceId: Int, record: AudioRecord) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val sampleRate = record.sampleRate
+            val channelCount = record.channelCount
+            val encoding = record.audioFormat
+
+            val infoMap = mutableMapOf<String, Any>(
+                "id" to instanceId,
+                "sampleRate" to sampleRate,
+                "channelCount" to channelCount,
+                "audioFormat" to encoding,
+                "audioSource" to record.audioSource
+            )
+
+            // Get AudioAttributes (API 24+): usage / contentType / flags
+            // Fix: record.audioAttributes will build error
+            // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            //     val attrs = record.audioAttributes
+            //     infoMap["usage"] = attrs.usage
+            //     infoMap["contentType"] = attrs.contentType
+            //     infoMap["flags"] = attrs.flags
+            // }
+
+            // Get Routed Device (API 24+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val routedDevice = record.routedDevice
+                if (routedDevice != null) {
+                    infoMap["routedDeviceName"] = routedDevice.productName.toString()
+                    infoMap["routedDeviceType"] = "${getDeviceTypeName(routedDevice.type)} (${routedDevice.type})"
+                    infoMap["routedDeviceId"] = routedDevice.id
+                }
+            }
+
+            runOnUiThread { audioRecordInfoSink?.success(infoMap) }
+        }
+    }
+
+
+    private fun sendAudioTrackInfo(instanceId: Int, track: AudioTrack, isOffloaded: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val format = track.format
+            val sampleRate = track.sampleRate
+            val channelCount = track.channelCount
+            val encoding = track.audioFormat
+            
+            val infoMap = mutableMapOf<String, Any>(
+                "id" to instanceId,
+                "sampleRate" to sampleRate,
+                "channelCount" to channelCount,
+                "audioFormat" to encoding,
+                "isOffloaded" to isOffloaded
+            )
+
+            // Get Attributes if available
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val attrs = track.audioAttributes
+                infoMap["usage"] = attrs.usage
+                infoMap["contentType"] = attrs.contentType
+                infoMap["flags"] = attrs.flags
+            }
+
+            // Get Routed Device (API 24+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val routedDevice = track.routedDevice
+                if (routedDevice != null) {
+                    infoMap["routedDeviceName"] = routedDevice.productName.toString()
+                    infoMap["routedDeviceType"] = "${getDeviceTypeName(routedDevice.type)} (${routedDevice.type})"
+                    infoMap["routedDeviceId"] = routedDevice.id
+                }
+            }
+            
+            runOnUiThread { audioTrackInfoSink?.success(infoMap) }
+        }
+    }
+
     private fun registerAudioDeviceCallback() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -514,6 +626,7 @@ class MainActivity : FlutterActivity() {
 
         if (bufferSize <= 0) {
             Log.e("AudioTest", "Invalid AudioTrack parameters.")
+            runOnUiThread { audioTrackInfoSink?.error("INVALID_PARAMS", "Invalid AudioTrack parameters: bufferSize <= 0", null) }
             return
         }
 
@@ -660,7 +773,16 @@ class MainActivity : FlutterActivity() {
                                 }
                         )
                         audioTracks[instanceId] = offloadTrack
+                        
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            offloadTrack.addOnRoutingChangedListener(
+                                { router -> sendAudioTrackInfo(instanceId, router as AudioTrack, true) },
+                                null
+                            )
+                        }
+                        
                         offloadTrack.play()
+                        sendAudioTrackInfo(instanceId, offloadTrack, true)
                         useOffload = true
                         Log.i("AudioTest", "Started compress offload playback")
                     } catch (e: Exception) {
@@ -752,7 +874,16 @@ class MainActivity : FlutterActivity() {
             }
         }
         audioTracks[instanceId] = audioTrack
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            audioTrack.addOnRoutingChangedListener(
+                { router -> sendAudioTrackInfo(instanceId, router as AudioTrack, false) },
+                null
+            )
+        }
+        
         audioTrack.play()
+        sendAudioTrackInfo(instanceId, audioTrack, false)
 
         val codec: MediaCodec
         try {
@@ -889,7 +1020,16 @@ class MainActivity : FlutterActivity() {
             }
         }
         audioTracks[instanceId] = audioTrack
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            audioTrack.addOnRoutingChangedListener(
+                { router -> sendAudioTrackInfo(instanceId, router as AudioTrack, false) },
+                null
+            )
+        }
+        
         audioTrack.play()
+        sendAudioTrackInfo(instanceId, audioTrack, false)
 
         val frequency = 440.0 // A4 note
         var angle = 0.0
@@ -1091,6 +1231,14 @@ class MainActivity : FlutterActivity() {
 
         audioRecord.startRecording()
         isRecordingMap[instanceId] = true
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            audioRecord.addOnRoutingChangedListener(
+                { router -> sendAudioRecordInfo(instanceId, router as AudioRecord) },
+                null
+            )
+        }
+        sendAudioRecordInfo(instanceId, audioRecord)
 
         val recordThread = Thread {
             val is8Bit = audioFormat == AudioFormat.ENCODING_PCM_8BIT

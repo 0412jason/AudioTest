@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 
@@ -47,6 +48,53 @@ class FileAudioInfo {
   }
 }
 
+class AudioInfo {
+  final int id;
+  final int sampleRate;
+  final int channelCount;
+  final int audioFormat;
+  final bool? isOffloaded;
+  final int? audioSource;
+  final int? usage;
+  final int? contentType;
+  final int? flags;
+  final String? routedDeviceName;
+  final String? routedDeviceType;
+  final int? routedDeviceId;
+
+  AudioInfo({
+    required this.id,
+    required this.sampleRate,
+    required this.channelCount,
+    required this.audioFormat,
+    this.isOffloaded,
+    this.audioSource,
+    this.usage,
+    this.contentType,
+    this.flags,
+    this.routedDeviceName,
+    this.routedDeviceType,
+    this.routedDeviceId,
+  });
+
+  factory AudioInfo.fromMap(Map<Object?, Object?> map) {
+    return AudioInfo(
+      id: map['id'] as int,
+      sampleRate: map['sampleRate'] as int,
+      channelCount: map['channelCount'] as int,
+      audioFormat: map['audioFormat'] as int,
+      isOffloaded: map['isOffloaded'] as bool?,
+      audioSource: map['audioSource'] as int?,
+      usage: map['usage'] as int?,
+      contentType: map['contentType'] as int?,
+      flags: map['flags'] as int?,
+      routedDeviceName: map['routedDeviceName'] as String?,
+      routedDeviceType: map['routedDeviceType'] as String?,
+      routedDeviceId: map['routedDeviceId'] as int?,
+    );
+  }
+}
+
 class AudioEngine {
   static const MethodChannel _methodChannel = MethodChannel(
     'com.example.audiotest/audio',
@@ -57,9 +105,35 @@ class AudioEngine {
   static const EventChannel _deviceChangeEventChannel = EventChannel(
     'com.example.audiotest/deviceChanges',
   );
+  static const EventChannel _audioTrackInfoEventChannel = EventChannel(
+    'com.example.audiotest/audioTrackInfo',
+  );
+  static const EventChannel _audioRecordInfoEventChannel = EventChannel(
+    'com.example.audiotest/audioRecordInfo',
+  );
 
+  // ── Streams ───────────────────────────────────────────────────────────────
   static Stream<Map<dynamic, dynamic>>? _amplitudeStream;
   static Stream<void>? _deviceChangeStream;
+  static Stream<AudioInfo>? _audioInfoStream;
+
+  // ── Cached attribute maps (loaded once at app start) ──────────────────────
+  static Map<String, int> cachedUsagesMap = {};
+  static Map<String, int> cachedContentTypesMap = {};
+  static Map<String, int> cachedFlagsMap = {};
+  static Map<String, int> cachedAudioSourcesMap = {};
+  static bool _mapsLoaded = false;
+
+  static Future<void> initAttributeMaps() async {
+    if (_mapsLoaded) return;
+    final attrs = await getAudioAttributesOptions();
+    final sources = await getAudioSourceOptions();
+    cachedUsagesMap = attrs['usages'] ?? {};
+    cachedContentTypesMap = attrs['contentTypes'] ?? {};
+    cachedFlagsMap = attrs['flags'] ?? {};
+    cachedAudioSourcesMap = sources;
+    _mapsLoaded = true;
+  }
 
   static Future<List<AudioDevice>> getAudioDevices(bool isOutput) async {
     try {
@@ -309,5 +383,20 @@ class AudioEngine {
   static Stream<void> get deviceChangeStream {
     _deviceChangeStream ??= _deviceChangeEventChannel.receiveBroadcastStream();
     return _deviceChangeStream!;
+  }
+
+  static Stream<AudioInfo> get audioInfoStream {
+    if (_audioInfoStream != null) return _audioInfoStream!;
+    final controller = StreamController<AudioInfo>.broadcast();
+    _audioTrackInfoEventChannel
+        .receiveBroadcastStream()
+        .map((e) => AudioInfo.fromMap(e as Map<Object?, Object?>))
+        .listen(controller.add, onError: controller.addError);
+    _audioRecordInfoEventChannel
+        .receiveBroadcastStream()
+        .map((e) => AudioInfo.fromMap(e as Map<Object?, Object?>))
+        .listen(controller.add, onError: controller.addError);
+    _audioInfoStream = controller.stream;
+    return _audioInfoStream!;
   }
 }
