@@ -44,10 +44,10 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   );
 
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_IN_STEREO
-  int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
+  int _selectedAudioFormat = 21; // AudioFormat.ENCODING_PCM_24BIT
 
   int _selectedPlaybackChannelConfig = 12; // AudioFormat.CHANNEL_OUT_STEREO
-  int _selectedPlaybackAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
+  int _selectedPlaybackAudioFormat = 21; // AudioFormat.ENCODING_PCM_24BIT
 
   List<AudioDevice> _inputDevices = [];
   List<AudioDevice> _outputDevices = [];
@@ -84,13 +84,13 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
 
   @override
   void dispose() {
+    _stopCall();
     _txSampleRateController.dispose();
     _rxSampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel();
     _deviceChangeSub?.cancel();
     _audioInfoSub?.cancel();
-    _stopCall();
     super.dispose();
   }
 
@@ -249,17 +249,19 @@ class _VoIPConfigWidgetState extends State<VoIPConfigWidget> {
   }
 
   void _stopCall() async {
-    setState(() {
-      _isCalling = false;
-      _isRinging = false;
-      _actualRxAudioInfo = null;
-      _actualTxAudioInfo = null;
-      _amplitudes.clear();
-      for (int i = 0; i < _maxAmplitudes; i++) {
-        _amplitudes.add(0.0);
-      }
-    });
-    _ampUpdateNotifier.value++;
+    if (mounted) {
+      setState(() {
+        _isCalling = false;
+        _isRinging = false;
+        _actualRxAudioInfo = null;
+        _actualTxAudioInfo = null;
+        _amplitudes.clear();
+        for (int i = 0; i < _maxAmplitudes; i++) {
+          _amplitudes.add(0.0);
+        }
+      });
+      _ampUpdateNotifier.value++;
+    }
     _audioInfoSub?.cancel();
     await AudioEngine.stopRecording(_instanceId);
     await AudioEngine.stopPlayback(_instanceId + 1);

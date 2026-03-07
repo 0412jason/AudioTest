@@ -41,7 +41,7 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
     text: "48000",
   );
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_IN_STEREO
-  int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
+  int _selectedAudioFormat = 21; // AudioFormat.ENCODING_PCM_24BIT
 
   int _selectedSource = 1;
   int _selectedMode = -3; // Default BYPASS is -3
@@ -77,12 +77,12 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
 
   @override
   void dispose() {
+    _stopRecording();
     _sampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _amplitudeSub?.cancel(); // Cancel subscription here
     _deviceChangeSub?.cancel();
     _audioInfoSub?.cancel();
-    _stopRecording();
     super.dispose();
   }
 
@@ -193,15 +193,17 @@ class _RecordConfigWidgetState extends State<RecordConfigWidget> {
   }
 
   void _stopRecording() async {
-    setState(() {
-      _isRecording = false;
-      _actualAudioInfo = null;
-      _amplitudes.clear();
-      for (int i = 0; i < _maxAmplitudes; i++) {
-        _amplitudes.add(0.0);
-      }
-      _ampUpdateNotifier.value++;
-    });
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _actualAudioInfo = null;
+        _amplitudes.clear();
+        for (int i = 0; i < _maxAmplitudes; i++) {
+          _amplitudes.add(0.0);
+        }
+        _ampUpdateNotifier.value++;
+      });
+    }
     _amplitudeSub?.cancel();
     _audioInfoSub?.cancel();
     await AudioEngine.stopRecording(_instanceId);

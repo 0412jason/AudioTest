@@ -45,7 +45,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   bool _enableOffload = false;
 
   int _selectedChannelConfig = 12; // AudioFormat.CHANNEL_OUT_STEREO
-  int _selectedAudioFormat = 2; // AudioFormat.ENCODING_PCM_16BIT
+  int _selectedAudioFormat = 21; // AudioFormat.ENCODING_PCM_24BIT
 
   int _selectedUsage = 1;
   int _selectedContentType = 2;
@@ -106,11 +106,12 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
 
   @override
   void dispose() {
+    _stopPlayback();
     _sampleRateController.dispose();
     _ampUpdateNotifier.dispose();
     _deviceChangeSub?.cancel();
+    _amplitudeSub?.cancel();
     _audioInfoSub?.cancel();
-    _stopPlayback();
     super.dispose();
   }
 
@@ -180,16 +181,18 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
   }
 
   void _stopPlayback() async {
-    setState(() {
-      _isPlaying = false;
-      _isPaused = false;
-      _actualAudioInfo = null;
-    });
-    _amplitudes.clear();
-    for (int i = 0; i < _maxAmplitudes; i++) {
-      _amplitudes.add(0.0);
+    if (mounted) {
+      setState(() {
+        _isPlaying = false;
+        _isPaused = false;
+        _actualAudioInfo = null;
+      });
+      _amplitudes.clear();
+      for (int i = 0; i < _maxAmplitudes; i++) {
+        _amplitudes.add(0.0);
+      }
+      _ampUpdateNotifier.value++;
     }
-    _ampUpdateNotifier.value++;
     _amplitudeSub?.cancel();
     _audioInfoSub?.cancel();
     await AudioEngine.stopPlayback(_instanceId);
@@ -263,7 +266,7 @@ class _PlaybackConfigWidgetState extends State<PlaybackConfigWidget> {
                             _localFilePath = null;
                             _sampleRateController.text = '48000';
                             _selectedChannelConfig = 4;
-                            _selectedAudioFormat = 2;
+                            _selectedAudioFormat = 21;
                           }
                         });
                       }
