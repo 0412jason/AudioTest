@@ -112,16 +112,24 @@ class AudioInfoCard extends StatelessWidget {
             ),
           ),
 
-        // ── Routed Device ─────────────────────────────────────────────────
-        if (info.routedDeviceName != null) ...[
+        // ── Routed Devices ────────────────────────────────────────────────
+        if (info.routedDevices != null && info.routedDevices!.isNotEmpty) ...[
           const Divider(height: 16),
-          _SectionLabel('Routed Device'),
+          _SectionLabel('Routed Devices'),
           const SizedBox(height: 4),
-          InfoRow(label: 'Name', value: info.routedDeviceName!),
-          if (info.routedDeviceType != null)
-            InfoRow(label: 'Type', value: info.routedDeviceType!),
-          if (info.routedDeviceId != null)
-            InfoRow(label: 'ID', value: '${info.routedDeviceId}'),
+          for (var i = 0; i < info.routedDevices!.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            if (info.routedDevices!.length > 1)
+              Text(
+                'Device ${i + 1}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            InfoRow(label: 'Name', value: info.routedDevices![i].name),
+            InfoRow(label: 'Type', value: info.routedDevices![i].type),
+            InfoRow(label: 'ID', value: '${info.routedDevices![i].id}'),
+          ],
         ],
       ],
     );
