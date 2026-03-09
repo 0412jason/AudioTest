@@ -551,10 +551,31 @@ class AudioPlaybackManager(private val activity: Activity) {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                track.routedDevice?.let { device ->
-                    infoMap["routedDeviceName"] = device.productName.toString()
-                    infoMap["routedDeviceType"] = "${AudioDeviceManager(context).getDeviceTypeName(device.type)} (${device.type})"
-                    infoMap["routedDeviceId"] = device.id
+                val routedDevicesList = mutableListOf<Map<String, Any>>()
+
+                if (Build.VERSION.SDK_INT >= 33) {
+                    val devices = audioManager.getAudioDevicesForAttributes(track.audioAttributes)
+                    for (device in devices) {
+                        routedDevicesList.add(mapOf(
+                            "name" to device.productName.toString(),
+                            "type" to "${AudioDeviceManager(context).getDeviceTypeName(device.type)} (${device.type})",
+                            "id" to device.id
+                        ))
+                    }
+                }
+
+                if (routedDevicesList.isEmpty()) {
+                    track.routedDevice?.let { device ->
+                        routedDevicesList.add(mapOf(
+                            "name" to device.productName.toString(),
+                            "type" to "${AudioDeviceManager(context).getDeviceTypeName(device.type)} (${device.type})",
+                            "id" to device.id
+                        ))
+                    }
+                }
+
+                if (routedDevicesList.isNotEmpty()) {
+                    infoMap["routedDevices"] = routedDevicesList
                 }
             }
             activity.runOnUiThread { trackInfoSink?.success(infoMap) }

@@ -279,10 +279,18 @@ class AudioRecordingManager(private val activity: Activity) {
             )
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val routedDevicesList = mutableListOf<Map<String, Any>>()
+
                 record.routedDevice?.let { device ->
-                    infoMap["routedDeviceName"] = device.productName.toString()
-                    infoMap["routedDeviceType"] = "${AudioDeviceManager(context).getDeviceTypeName(device.type)} (${device.type})"
-                    infoMap["routedDeviceId"] = device.id
+                    routedDevicesList.add(mapOf(
+                        "name" to device.productName.toString(),
+                        "type" to "${AudioDeviceManager(context).getDeviceTypeName(device.type)} (${device.type})",
+                        "id" to device.id
+                    ))
+                }
+
+                if (routedDevicesList.isNotEmpty()) {
+                    infoMap["routedDevices"] = routedDevicesList
                 }
             }
             activity.runOnUiThread { recordInfoSink?.success(infoMap) }

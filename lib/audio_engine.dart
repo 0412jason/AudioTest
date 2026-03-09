@@ -48,6 +48,22 @@ class FileAudioInfo {
   }
 }
 
+class RoutedDevice {
+  final String name;
+  final String type;
+  final int id;
+
+  RoutedDevice({required this.name, required this.type, required this.id});
+
+  factory RoutedDevice.fromMap(Map<Object?, Object?> map) {
+    return RoutedDevice(
+      name: map['name'] as String,
+      type: map['type'] as String,
+      id: map['id'] as int,
+    );
+  }
+}
+
 class AudioInfo {
   final int id;
   final int sampleRate;
@@ -58,9 +74,7 @@ class AudioInfo {
   final int? usage;
   final int? contentType;
   final int? flags;
-  final String? routedDeviceName;
-  final String? routedDeviceType;
-  final int? routedDeviceId;
+  final List<RoutedDevice>? routedDevices;
 
   AudioInfo({
     required this.id,
@@ -72,9 +86,7 @@ class AudioInfo {
     this.usage,
     this.contentType,
     this.flags,
-    this.routedDeviceName,
-    this.routedDeviceType,
-    this.routedDeviceId,
+    this.routedDevices,
   });
 
   factory AudioInfo.fromMap(Map<Object?, Object?> map) {
@@ -88,9 +100,11 @@ class AudioInfo {
       usage: map['usage'] as int?,
       contentType: map['contentType'] as int?,
       flags: map['flags'] as int?,
-      routedDeviceName: map['routedDeviceName'] as String?,
-      routedDeviceType: map['routedDeviceType'] as String?,
-      routedDeviceId: map['routedDeviceId'] as int?,
+      routedDevices: map['routedDevices'] != null
+          ? (map['routedDevices'] as List)
+                .map((m) => RoutedDevice.fromMap(m as Map<Object?, Object?>))
+                .toList()
+          : null,
     );
   }
 }
